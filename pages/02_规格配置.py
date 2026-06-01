@@ -8,6 +8,17 @@ from database import fetch_specs, init_db, save_spec
 from manual import render_user_manual
 
 
+def normalize_spec_columns(specs):
+    normalized = specs.copy()
+    if "lower_tolerance_percent" not in normalized.columns:
+        normalized["lower_tolerance_percent"] = normalized["lower_tolerance"] / normalized["target_weight"] * 100
+    if "lower_tolerance" not in normalized.columns:
+        normalized["lower_tolerance"] = normalized["target_weight"] * normalized["lower_tolerance_percent"] / 100
+    if "lower_spec_limit" not in normalized.columns:
+        normalized["lower_spec_limit"] = normalized["target_weight"] - normalized["lower_tolerance"]
+    return normalized
+
+
 st.set_page_config(page_title="规格配置", layout="wide")
 require_login()
 init_db()
@@ -16,7 +27,7 @@ render_user_manual()
 st.title("规格配置")
 st.caption("维护每个规格的目标捆重和允许负差百分比。系统会自动计算最低允许捆重。")
 
-specs = fetch_specs(include_inactive=True)
+specs = normalize_spec_columns(fetch_specs(include_inactive=True))
 
 if specs.empty:
     st.info("还没有规格，请先新增一个规格。")
