@@ -14,7 +14,7 @@ init_db()
 render_user_manual()
 
 st.title("规格配置")
-st.caption("维护每个规格的目标捆重和允许负差。允许负差请填写正数，例如允许低 5kg 就填 5。")
+st.caption("维护每个规格的目标捆重和允许负差百分比。系统会自动计算最低允许捆重。")
 
 specs = fetch_specs(include_inactive=True)
 
@@ -27,13 +27,14 @@ else:
         columns={
             "spec_name": "规格",
             "target_weight": "目标捆重",
-            "lower_tolerance": "允许负差",
+            "lower_tolerance_percent": "允许负差(%)",
+            "lower_tolerance": "允许负差重量",
             "lower_spec_limit": "最低允许捆重",
             "unit": "单位",
             "updated_at": "更新时间",
         }
     )
-    show_dataframe(display[["规格", "目标捆重", "允许负差", "最低允许捆重", "单位", "状态", "更新时间"]])
+    show_dataframe(display[["规格", "目标捆重", "允许负差(%)", "允许负差重量", "最低允许捆重", "单位", "状态", "更新时间"]])
 
 
 with st.expander("新增规格", expanded=specs.empty):
@@ -41,8 +42,10 @@ with st.expander("新增规格", expanded=specs.empty):
         col1, col2, col3, col4 = st.columns(4)
         spec_name = col1.text_input("规格名称", placeholder="例如 12mm / Φ16")
         target_weight = col2.number_input("目标捆重", min_value=0.01, value=1000.0, step=1.0)
-        lower_tolerance = col3.number_input("允许负差", min_value=0.0, value=5.0, step=0.1)
+        lower_tolerance_percent = col3.number_input("允许负差(%)", min_value=0.0, value=0.4, step=0.01, format="%.3f")
         unit = col4.text_input("单位", value="kg")
+        lower_tolerance = target_weight * lower_tolerance_percent / 100
+        st.info(f"自动计算：允许负差重量 {lower_tolerance:.3f} {unit}，最低允许捆重 {target_weight - lower_tolerance:.3f} {unit}")
         submitted = st.form_submit_button("保存新规格", type="primary")
 
     if submitted:
@@ -50,7 +53,7 @@ with st.expander("新增规格", expanded=specs.empty):
             save_spec(
                 spec_name=spec_name,
                 target_weight=target_weight,
-                lower_tolerance=lower_tolerance,
+                lower_tolerance_percent=lower_tolerance_percent,
                 unit=unit,
             )
             st.success("规格已保存。")
@@ -74,9 +77,17 @@ with st.expander("编辑已有规格", expanded=False):
             col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
             edit_name = col1.text_input("规格名称", value=selected["spec_name"])
             edit_target = col2.number_input("目标捆重", min_value=0.01, value=float(selected["target_weight"]), step=1.0)
-            edit_tolerance = col3.number_input("允许负差", min_value=0.0, value=float(selected["lower_tolerance"]), step=0.1)
+            edit_tolerance_percent = col3.number_input(
+                "允许负差(%)",
+                min_value=0.0,
+                value=float(selected["lower_tolerance_percent"]),
+                step=0.01,
+                format="%.3f",
+            )
             edit_unit = col4.text_input("单位", value=selected["unit"])
             edit_active = col5.checkbox("启用", value=bool(selected["is_active"]))
+            edit_tolerance = edit_target * edit_tolerance_percent / 100
+            st.info(f"自动计算：允许负差重量 {edit_tolerance:.3f} {edit_unit}，最低允许捆重 {edit_target - edit_tolerance:.3f} {edit_unit}")
             edit_submitted = st.form_submit_button("保存修改", type="primary")
 
         if edit_submitted:
@@ -85,7 +96,7 @@ with st.expander("编辑已有规格", expanded=False):
                     spec_id=int(selected_id),
                     spec_name=edit_name,
                     target_weight=edit_target,
-                    lower_tolerance=edit_tolerance,
+                    lower_tolerance_percent=edit_tolerance_percent,
                     unit=edit_unit,
                     is_active=edit_active,
                 )

@@ -15,6 +15,7 @@ SUMMARY_COLUMNS = [
     "production_date",
     "sample_count",
     "target_weight",
+    "lower_tolerance_percent",
     "lower_tolerance",
     "lsl_deviation",
     "mean_weight",
@@ -67,6 +68,11 @@ def calculate_group_metrics(group: pd.DataFrame) -> pd.Series:
     df = add_metric_columns(group)
     sample_count = int(len(df))
     target_weight = float(df["target_weight"].iloc[0])
+    lower_tolerance_percent = (
+        float(df["lower_tolerance_percent"].iloc[0])
+        if "lower_tolerance_percent" in df.columns
+        else float(df["lower_tolerance"].iloc[0]) / target_weight * 100
+    )
     lower_tolerance = float(df["lower_tolerance"].iloc[0])
     lsl_deviation = -abs(lower_tolerance)
 
@@ -89,6 +95,7 @@ def calculate_group_metrics(group: pd.DataFrame) -> pd.Series:
         {
             "sample_count": sample_count,
             "target_weight": target_weight,
+            "lower_tolerance_percent": lower_tolerance_percent,
             "lower_tolerance": lower_tolerance,
             "lsl_deviation": lsl_deviation,
             "mean_weight": mean_weight,
@@ -152,7 +159,8 @@ def format_metric_table(summary: pd.DataFrame) -> pd.DataFrame:
         "production_date": "日期",
         "sample_count": "样本数",
         "target_weight": "目标捆重",
-        "lower_tolerance": "允许负差",
+        "lower_tolerance_percent": "允许负差(%)",
+        "lower_tolerance": "允许负差重量",
         "mean_weight": "平均捆重",
         "mean_deviation": "平均偏差",
         "std_deviation": "偏差标准差",

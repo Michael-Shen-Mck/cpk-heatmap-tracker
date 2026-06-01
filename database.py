@@ -31,6 +31,7 @@ def init_db() -> None:
                 spec_name TEXT NOT NULL UNIQUE,
                 target_weight REAL NOT NULL CHECK (target_weight > 0),
                 lower_tolerance REAL NOT NULL CHECK (lower_tolerance >= 0),
+                lower_tolerance_percent REAL CHECK (lower_tolerance_percent >= 0),
                 unit TEXT NOT NULL DEFAULT 'kg',
                 is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -72,6 +73,8 @@ def init_db() -> None:
             );
             """
         )
+        ensure_column(conn, "specs", "lower_tolerance_percent", "REAL")
+        migrate_lower_tolerance_percent(conn)
         ensure_column(conn, "batches", "rolling_line", "TEXT")
         ensure_column(conn, "batches", "team", "TEXT")
         ensure_column(conn, "measurements", "furnace_no", "TEXT")
@@ -85,6 +88,20 @@ def ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, c
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
+def migrate_lower_tolerance_percent(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        UPDATE specs
+        SET lower_tolerance_percent =
+            CASE
+                WHEN target_weight > 0 THEN ROUND(lower_tolerance / target_weight * 100, 6)
+                ELSE 0
+            END
+        WHERE lower_tolerance_percent IS NULL
+        """
+    )
+
+
 def fetch_specs(include_inactive: bool = False) -> pd.DataFrame:
     where = "" if include_inactive else "WHERE is_active = 1"
     with get_connection() as conn:
@@ -94,8 +111,9 @@ def fetch_specs(include_inactive: bool = False) -> pd.DataFrame:
                 id,
                 spec_name,
                 target_weight,
-                lower_tolerance,
-                target_weight - lower_tolerance AS lower_spec_limit,
+                COALESCE(lower_tolerance_percent, lower_tolerance / target_weight * 100) AS lower_tolerance_percent,
+                target_weight * COALESCE(lower_tolerance_percent, lower_tolerance / target_weight * 100) / 100 AS lower_tolerance,
+                target_weight * (1 - COALESCE(lower_tolerance_percent, lower_tolerance / target_weight * 100) / 100) AS lower_spec_limit,
                 unit,
                 is_active,
                 created_at,
@@ -120,7 +138,8 @@ def save_spec(
     *,
     spec_name: str,
     target_weight: float,
-    lower_tolerance: float,
+    lower_tolerance: float | None = None,
+    lower_tolerance_percent: float | None = None,
     unit: str = "kg",
     is_active: bool = True,
     spec_id: int | None = None,
@@ -131,17 +150,20 @@ def save_spec(
         raise ValueError("规格名称不能为空")
     if target_weight <= 0:
         raise ValueError("目标捆重必须大于 0")
-    if lower_tolerance < 0:
-        raise ValueError("允许负差不能小于 0")
+    if lower_tolerance_percent is None:
+        lower_tolerance_percent = 0.0 if lower_tolerance is None else lower_tolerance / target_weight * 100
+    if lower_tolerance_percent < 0:
+        raise ValueError("允许负差百分比不能小于 0")
+    lower_tolerance_value = target_weight * lower_tolerance_percent / 100
 
     with get_connection() as conn:
         if spec_id is None:
             cursor = conn.execute(
                 """
-                INSERT INTO specs (spec_name, target_weight, lower_tolerance, unit, is_active)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO specs (spec_name, target_weight, lower_tolerance, lower_tolerance_percent, unit, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (spec_name, target_weight, lower_tolerance, unit, int(is_active)),
+                (spec_name, target_weight, lower_tolerance_value, lower_tolerance_percent, unit, int(is_active)),
             )
             return int(cursor.lastrowid)
 
@@ -151,11 +173,12 @@ def save_spec(
             SET spec_name = ?,
                 target_weight = ?,
                 lower_tolerance = ?,
+                lower_tolerance_percent = ?,
                 unit = ?,
                 is_active = ?
             WHERE id = ?
             """,
-            (spec_name, target_weight, lower_tolerance, unit, int(is_active), spec_id),
+            (spec_name, target_weight, lower_tolerance_value, lower_tolerance_percent, unit, int(is_active), spec_id),
         )
         return spec_id
 
@@ -278,8 +301,9 @@ def fetch_measurements(
                 s.id AS spec_id,
                 s.spec_name,
                 s.target_weight,
-                s.lower_tolerance,
-                s.target_weight - s.lower_tolerance AS lower_spec_limit,
+                COALESCE(s.lower_tolerance_percent, s.lower_tolerance / s.target_weight * 100) AS lower_tolerance_percent,
+                s.target_weight * COALESCE(s.lower_tolerance_percent, s.lower_tolerance / s.target_weight * 100) / 100 AS lower_tolerance,
+                s.target_weight * (1 - COALESCE(s.lower_tolerance_percent, s.lower_tolerance / s.target_weight * 100) / 100) AS lower_spec_limit,
                 s.unit,
                 b.production_date,
                 COALESCE(NULLIF(b.rolling_line, ''), '未填写') AS rolling_line,
