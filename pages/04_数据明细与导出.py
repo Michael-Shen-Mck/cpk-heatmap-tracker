@@ -6,7 +6,18 @@ import streamlit as st
 
 from auth import require_login
 from components import download_csv, show_dataframe
-from database import ROLLING_LINES, TEAMS, delete_batch, fetch_batches, fetch_measurements, fetch_specs, init_db
+from database import (
+    ROLLING_LINES,
+    TEAMS,
+    count_demo_batches,
+    delete_all_batches,
+    delete_batch,
+    delete_demo_batches,
+    fetch_batches,
+    fetch_measurements,
+    fetch_specs,
+    init_db,
+)
 from manual import render_user_manual
 from metrics import add_metric_columns, format_metric_table, summarize_daily, summarize_monthly
 
@@ -59,6 +70,29 @@ batches = fetch_batches(
     rolling_line=rolling_line,
     team=team,
 )
+
+with st.expander("数据管理：删除演示数据或清空数据", expanded=False):
+    st.warning("删除操作不可恢复。正式使用前，建议先导出 CSV 备份。")
+    demo_count = count_demo_batches()
+    col_demo, col_all = st.columns(2)
+
+    with col_demo:
+        st.markdown("#### 删除演示数据")
+        st.caption(f"当前共有 {demo_count} 个 `DEMO-` 开头的演示批次。只删除演示批次，保留规格配置。")
+        confirm_demo = st.checkbox("我确认删除演示数据", key="confirm_delete_demo")
+        if st.button("删除演示数据", disabled=not confirm_demo or demo_count == 0):
+            deleted = delete_demo_batches()
+            st.success(f"已删除 {deleted} 个演示批次。")
+            st.rerun()
+
+    with col_all:
+        st.markdown("#### 清空全部捆重数据")
+        st.caption("删除所有批次和捆重明细，保留规格配置。适合客户培训结束后重新开始。")
+        confirm_text = st.text_input("如需清空全部数据，请输入：清空全部数据")
+        if st.button("清空全部捆重数据", disabled=confirm_text != "清空全部数据"):
+            deleted = delete_all_batches()
+            st.success(f"已清空 {deleted} 个批次。")
+            st.rerun()
 
 if measurements.empty:
     st.warning("筛选条件下没有数据。")

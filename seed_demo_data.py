@@ -166,11 +166,18 @@ def seed_demo_data() -> tuple[int, int]:
 
 def seed_demo_data_if_empty() -> tuple[int, int]:
     init_db()
-    measurements = fetch_measurements()
-    if not measurements.empty:
+    specs = fetch_specs(include_inactive=True)
+    if not specs.empty:
         backfill_demo_line_team()
         return 0, 0
     return seed_demo_data()
+
+
+def clear_demo_data() -> int:
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM batches WHERE batch_no LIKE 'DEMO-%'")
+        return int(cursor.rowcount)
 
 
 if __name__ == "__main__":

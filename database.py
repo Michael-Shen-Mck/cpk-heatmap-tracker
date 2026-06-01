@@ -331,3 +331,21 @@ def fetch_batches(
 def delete_batch(batch_id: int) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM batches WHERE id = ?", (batch_id,))
+
+
+def count_demo_batches() -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS count FROM batches WHERE batch_no LIKE 'DEMO-%'").fetchone()
+    return int(row["count"])
+
+
+def delete_demo_batches() -> int:
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM batches WHERE batch_no LIKE 'DEMO-%'")
+        return int(cursor.rowcount)
+
+
+def delete_all_batches() -> int:
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM batches")
+        return int(cursor.rowcount)
