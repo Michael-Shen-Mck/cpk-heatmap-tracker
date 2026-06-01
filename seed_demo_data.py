@@ -155,7 +155,16 @@ def seed_demo_data() -> tuple[int, int]:
                     batch_no=batch_no,
                     operator="演示数据",
                     remarks="系统生成的演示数据，可在明细页删除批次",
-                    weights=weights,
+                    weights=[],
+                    measurement_rows=[
+                        {
+                            "furnace_no": f"{1090 + day_index + spec_index}",
+                            "bundle_no": str(bundle_index),
+                            "actual_weight": weight,
+                            "measurement_remarks": "",
+                        }
+                        for bundle_index, weight in enumerate(weights, start=1)
+                    ],
                 )
                 created_batches += 1
                 created_measurements += len(weights)

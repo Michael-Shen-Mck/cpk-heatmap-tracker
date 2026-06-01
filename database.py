@@ -62,7 +62,10 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 batch_id INTEGER NOT NULL,
                 bundle_index INTEGER NOT NULL,
+                furnace_no TEXT,
+                bundle_no TEXT,
                 actual_weight REAL NOT NULL CHECK (actual_weight > 0),
+                measurement_remarks TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (batch_id) REFERENCES batches (id) ON DELETE CASCADE,
                 UNIQUE (batch_id, bundle_index)
@@ -71,6 +74,9 @@ def init_db() -> None:
         )
         ensure_column(conn, "batches", "rolling_line", "TEXT")
         ensure_column(conn, "batches", "team", "TEXT")
+        ensure_column(conn, "measurements", "furnace_no", "TEXT")
+        ensure_column(conn, "measurements", "bundle_no", "TEXT")
+        ensure_column(conn, "measurements", "measurement_remarks", "TEXT")
 
 
 def ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:
@@ -165,9 +171,30 @@ def create_batch_with_measurements(
     rolling_line: str = "",
     team: str = "",
     shift: str = "",
+    measurement_rows: Iterable[dict[str, object]] | None = None,
 ) -> int:
-    clean_weights = [float(weight) for weight in weights if float(weight) > 0]
-    if not clean_weights:
+    clean_measurements: list[tuple[int, str, str, float, str]] = []
+    if measurement_rows is not None:
+        for index, row in enumerate(measurement_rows, start=1):
+            weight = float(row.get("actual_weight", 0) or 0)
+            if pd.isna(weight) or weight <= 0:
+                continue
+            clean_measurements.append(
+                (
+                    index,
+                    str(row.get("furnace_no", "") or "").strip(),
+                    str(row.get("bundle_no", "") or "").strip(),
+                    weight,
+                    str(row.get("measurement_remarks", "") or "").strip(),
+                )
+            )
+    else:
+        for index, weight in enumerate(weights, start=1):
+            weight = float(weight)
+            if weight > 0:
+                clean_measurements.append((index, "", str(index), weight, ""))
+
+    if not clean_measurements:
         raise ValueError("至少需要录入一条有效捆重")
 
     batch_no = batch_no.strip()
@@ -198,10 +225,17 @@ def create_batch_with_measurements(
         batch_id = int(cursor.lastrowid)
         conn.executemany(
             """
-            INSERT INTO measurements (batch_id, bundle_index, actual_weight)
-            VALUES (?, ?, ?)
+            INSERT INTO measurements (
+                batch_id,
+                bundle_index,
+                furnace_no,
+                bundle_no,
+                actual_weight,
+                measurement_remarks
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            [(batch_id, index, weight) for index, weight in enumerate(clean_weights, start=1)],
+            [(batch_id, *measurement) for measurement in clean_measurements],
         )
         return batch_id
 
@@ -255,7 +289,10 @@ def fetch_measurements(
                 b.operator,
                 b.remarks,
                 m.bundle_index,
+                m.furnace_no,
+                m.bundle_no,
                 m.actual_weight,
+                m.measurement_remarks,
                 m.actual_weight - s.target_weight AS deviation,
                 CASE WHEN m.actual_weight < s.target_weight THEN 1 ELSE 0 END AS is_negative
             FROM measurements m

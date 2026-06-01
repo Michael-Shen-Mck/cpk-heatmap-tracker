@@ -113,12 +113,15 @@ with tab_raw:
             "team",
             "batch_no",
             "operator",
+            "furnace_no",
             "bundle_index",
+            "bundle_no",
             "actual_weight",
             "target_weight",
             "lower_spec_limit",
             "deviation",
             "negative_deviation",
+            "measurement_remarks",
             "remarks",
         ]
     ].rename(
@@ -129,13 +132,16 @@ with tab_raw:
             "team": "班组",
             "batch_no": "批号",
             "operator": "录入人",
+            "furnace_no": "炉号",
             "bundle_index": "序号",
+            "bundle_no": "捆号",
             "actual_weight": "实际捆重",
             "target_weight": "目标捆重",
             "lower_spec_limit": "最低允许捆重",
             "deviation": "偏差",
             "negative_deviation": "负差",
-            "remarks": "备注",
+            "measurement_remarks": "单捆备注",
+            "remarks": "批次备注",
         }
     )
     show_dataframe(raw_display.round(3))

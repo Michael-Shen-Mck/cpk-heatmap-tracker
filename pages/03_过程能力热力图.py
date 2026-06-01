@@ -94,11 +94,14 @@ if not selected_measurements.empty:
             "team",
             "batch_no",
             "operator",
+            "furnace_no",
             "bundle_index",
+            "bundle_no",
             "actual_weight",
             "target_weight",
             "deviation",
             "负差",
+            "measurement_remarks",
         ]
     ].rename(
         columns={
@@ -108,10 +111,13 @@ if not selected_measurements.empty:
             "team": "班组",
             "batch_no": "批号",
             "operator": "录入人",
+            "furnace_no": "炉号",
             "bundle_index": "序号",
+            "bundle_no": "捆号",
             "actual_weight": "实际捆重",
             "target_weight": "目标捆重",
             "deviation": "偏差",
+            "measurement_remarks": "备注",
         }
     )
     show_dataframe(detail_display.round(3))

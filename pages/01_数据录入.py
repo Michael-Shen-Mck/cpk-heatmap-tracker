@@ -13,7 +13,7 @@ from database import ROLLING_LINES, TEAMS, create_batch_with_measurements, fetch
 from manual import render_user_manual
 
 
-TEMPLATE_COLUMNS = ["生产日期", "规格", "轧线", "班组", "批号", "捆重", "录入人", "备注"]
+TEMPLATE_COLUMNS = ["生产日期", "规格", "轧线", "班组", "批号", "炉号", "捆号", "捆重", "备注", "录入人"]
 
 
 def parse_weights(raw_text: str) -> tuple[list[float], list[str]]:
@@ -47,9 +47,11 @@ def build_excel_template(specs: pd.DataFrame) -> bytes:
                 "轧线": "三轧",
                 "班组": "甲班",
                 "批号": "20260601-A",
+                "炉号": "1092",
+                "捆号": "1",
                 "捆重": 1998.5,
-                "录入人": "张三",
                 "备注": "示例：一行代表一捆",
+                "录入人": "张三",
             },
             {
                 "生产日期": date.today().isoformat(),
@@ -57,9 +59,11 @@ def build_excel_template(specs: pd.DataFrame) -> bytes:
                 "轧线": "三轧",
                 "班组": "甲班",
                 "批号": "20260601-A",
+                "炉号": "1092",
+                "捆号": "2",
                 "捆重": 2001.2,
-                "录入人": "张三",
                 "备注": "同一批号可填写多行捆重",
+                "录入人": "张三",
             },
         ],
         columns=TEMPLATE_COLUMNS,
@@ -91,7 +95,7 @@ def read_import_file(uploaded_file, specs: pd.DataFrame) -> tuple[pd.DataFrame, 
     errors: list[str] = []
     spec_names = set(specs["spec_name"].tolist())
 
-    for column in ["规格", "轧线", "班组", "批号", "录入人", "备注"]:
+    for column in ["规格", "轧线", "班组", "批号", "炉号", "捆号", "备注", "录入人"]:
         df[column] = df[column].fillna("").astype(str).str.strip()
 
     df["生产日期"] = pd.to_datetime(df["生产日期"], errors="coerce").dt.date
@@ -123,13 +127,21 @@ def read_import_file(uploaded_file, specs: pd.DataFrame) -> tuple[pd.DataFrame, 
 
 def import_excel_rows(df: pd.DataFrame, specs: pd.DataFrame) -> tuple[int, int]:
     spec_ids = {row["spec_name"]: int(row["id"]) for _, row in specs.iterrows()}
-    group_columns = ["生产日期", "规格", "轧线", "班组", "批号", "录入人", "备注"]
+    group_columns = ["生产日期", "规格", "轧线", "班组", "批号", "录入人"]
 
     created_batches = 0
     created_measurements = 0
     for keys, group in df.groupby(group_columns, dropna=False):
-        production_date, spec_name, rolling_line, team, batch_no, operator, remarks = keys
-        weights = group["捆重"].astype(float).tolist()
+        production_date, spec_name, rolling_line, team, batch_no, operator = keys
+        measurement_rows = [
+            {
+                "furnace_no": row["炉号"],
+                "bundle_no": row["捆号"],
+                "actual_weight": row["捆重"],
+                "measurement_remarks": row["备注"],
+            }
+            for _, row in group.iterrows()
+        ]
         create_batch_with_measurements(
             spec_id=spec_ids[spec_name],
             production_date=production_date.isoformat(),
@@ -137,11 +149,12 @@ def import_excel_rows(df: pd.DataFrame, specs: pd.DataFrame) -> tuple[int, int]:
             team=team,
             batch_no=batch_no,
             operator=operator,
-            remarks=remarks,
-            weights=weights,
+            remarks="Excel模板导入",
+            weights=[],
+            measurement_rows=measurement_rows,
         )
         created_batches += 1
-        created_measurements += len(weights)
+        created_measurements += len(measurement_rows)
 
     return created_batches, created_measurements
 
@@ -191,19 +204,41 @@ with manual_tab:
         st.error("以下内容无法识别为有效正数：" + "、".join(invalid_tokens[:20]))
 
     if weights:
-        preview = pd.DataFrame({"序号": range(1, len(weights) + 1), "实际捆重": weights})
+        preview = pd.DataFrame(
+            {
+                "炉号": "",
+                "捆号": [str(index) for index in range(1, len(weights) + 1)],
+                "实际捆重": weights,
+                "备注": "",
+            }
+        )
         preview["轧线"] = rolling_line
         preview["班组"] = team
         preview["目标捆重"] = float(selected_spec["target_weight"])
         preview["偏差"] = preview["实际捆重"] - preview["目标捆重"]
         preview["是否负差"] = preview["偏差"] < 0
-        show_dataframe(preview, height=260)
+        edited_preview = st.data_editor(
+            preview,
+            use_container_width=True,
+            hide_index=True,
+            height=300,
+            column_config={
+                "炉号": st.column_config.TextColumn("炉号", help="来自纸表的炉号，可按每捆填写"),
+                "捆号": st.column_config.TextColumn("捆号", help="来自纸表的捆号"),
+                "实际捆重": st.column_config.NumberColumn("实际捆重", min_value=0.01, step=0.01),
+                "备注": st.column_config.TextColumn("备注", help="单捆备注或复查说明"),
+            },
+            disabled=["轧线", "班组", "目标捆重", "偏差", "是否负差"],
+        )
+        edited_preview["实际捆重"] = pd.to_numeric(edited_preview["实际捆重"], errors="coerce")
+        edited_preview["偏差"] = edited_preview["实际捆重"] - float(selected_spec["target_weight"])
+        edited_preview["是否负差"] = edited_preview["偏差"] < 0
 
         col_a, col_b, col_c, col_d = st.columns(4)
-        col_a.metric("本次样本数", len(weights))
-        col_b.metric("平均捆重", f"{preview['实际捆重'].mean():.2f} {selected_spec['unit']}")
-        col_c.metric("平均偏差", f"{preview['偏差'].mean():.2f} {selected_spec['unit']}")
-        col_d.metric("负差数", int(preview["是否负差"].sum()))
+        col_a.metric("本次样本数", len(edited_preview))
+        col_b.metric("平均捆重", f"{edited_preview['实际捆重'].mean():.2f} {selected_spec['unit']}")
+        col_c.metric("平均偏差", f"{edited_preview['偏差'].mean():.2f} {selected_spec['unit']}")
+        col_d.metric("负差数", int(edited_preview["是否负差"].sum()))
     else:
         st.info("粘贴捆重后，这里会显示录入预览。")
 
@@ -219,7 +254,17 @@ with manual_tab:
                 batch_no=batch_no,
                 operator=operator,
                 remarks=remarks,
-                weights=weights,
+                weights=[],
+                measurement_rows=[
+                    {
+                        "furnace_no": row["炉号"],
+                        "bundle_no": row["捆号"],
+                        "actual_weight": row["实际捆重"],
+                        "measurement_remarks": row["备注"],
+                    }
+                    for _, row in edited_preview.iterrows()
+                    if pd.notna(row["实际捆重"]) and float(row["实际捆重"]) > 0
+                ],
             )
             st.success(f"已保存批次 {batch_no}，批次 ID：{batch_id}。")
         except ValueError as exc:
@@ -245,7 +290,7 @@ with import_tab:
             for error in import_errors:
                 st.error(error)
         else:
-            batch_count = import_df.groupby(["生产日期", "规格", "轧线", "班组", "批号", "录入人", "备注"], dropna=False).ngroups
+            batch_count = import_df.groupby(["生产日期", "规格", "轧线", "班组", "批号", "录入人"], dropna=False).ngroups
             st.success(f"校验通过：将导入 {batch_count} 个批次、{len(import_df)} 条捆重。")
             if st.button("确认导入 Excel 数据", type="primary"):
                 created_batches, created_measurements = import_excel_rows(import_df, specs)
